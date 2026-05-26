@@ -8,14 +8,13 @@ import streamlit as st
 import torch
 import torch.nn.functional as F
 
-    
 # ==================================================
-# PATH
+# PATH SETUP
 # ==================================================
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parent
 
-sys.path.append(str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "src"))
 
 from model import SiameseNetwork
 from utils import get_valid_transform
@@ -43,23 +42,7 @@ else:
     DEVICE = "cpu"
 
 # ==================================================
-# DEMO IMAGES
-# ==================================================
-
-DEFAULT_A = ROOT / "assets" / "sample-a.bmp"
-DEFAULT_B = ROOT / "assets" / "sample-b.bmp"
-
-if not DEFAULT_A.exists():
-    st.error(
-        "Demo image sample_A.bmp not found"
-    )
-
-if not DEFAULT_B.exists():
-    st.error(
-        "Demo image sample_B.bmp not found"
-    )
-# ==================================================
-# PAGE
+# PAGE CONFIG
 # ==================================================
 
 st.set_page_config(
@@ -69,104 +52,63 @@ st.set_page_config(
 )
 
 # ==================================================
-# MODEL
+# MODEL LOADING
 # ==================================================
 
 @st.cache_resource
 def load_model():
-
     model = SiameseNetwork()
-
     model.load_state_dict(
         torch.load(
             MODEL_PATH,
             map_location=DEVICE
         )
     )
-
     model = model.to(DEVICE)
-
     model.eval()
-
     return model
 
 
 model = load_model()
-
 transform = get_valid_transform()
 
 # ==================================================
-# PREPROCESS
+# PREPROCESSING FUNCTIONS
 # ==================================================
 
 def normalize_image(img):
-
     img = img.astype(np.float32)
-
     mean = np.mean(img)
     std = np.std(img)
-
-    img = (
-        img - mean
-    ) / (std + 1e-8)
-
-    img = cv2.normalize(
-        img,
-        None,
-        0,
-        255,
-        cv2.NORM_MINMAX
-    )
-
+    img = (img - mean) / (std + 1e-8)
+    img = cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX)
     return img.astype(np.uint8)
 
 
 def apply_clahe(img):
-
-    clahe = cv2.createCLAHE(
-        clipLimit=2.0,
-        tileGridSize=(8, 8)
-    )
-
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     return clahe.apply(img)
 
 
 @st.cache_data
 def preprocess_bytes(file_bytes):
-
     img = cv2.imdecode(
-        np.frombuffer(
-            file_bytes,
-            np.uint8
-        ),
+        np.frombuffer(file_bytes, np.uint8),
         cv2.IMREAD_GRAYSCALE
     )
-
     img = normalize_image(img)
-
     img = apply_clahe(img)
-
-    img = cv2.resize(
-        img,
-        IMG_SIZE
-    )
-
+    img = cv2.resize(img, IMG_SIZE)
     tensor = transform(img)
-
     return img, tensor
 
 
 # ==================================================
-# HEADER
+# UI - HEADER
 # ==================================================
 
-st.title(
-    "🔍 Fingerprint Verification System"
-)
+st.title("🔍 Fingerprint Verification")
 
-st.caption(
-    "Siamese Network + Minutiae Explainability"
-)
 # ==================================================
 # MAIN LAYOUT: INPUT | RESULT
 # ==================================================
@@ -175,100 +117,46 @@ col_input, col_result = st.columns([1, 1.2], gap="medium")
 
 # ===== LEFT COLUMN: INPUT =====
 with col_input:
-
     st.subheader("📁 INPUT")
-
-    use_demo = st.toggle(
-        "🎯 Use Demo Fingerprints",
-        value=True
-    )
-
+    
     file1 = st.file_uploader(
         "Fingerprint A",
         type=["bmp", "jpg", "jpeg", "png"],
-        key="file_a"
+        key="file_a",
+        label_visibility="collapsed"
     )
-
     file2 = st.file_uploader(
         "Fingerprint B",
         type=["bmp", "jpg", "jpeg", "png"],
-        key="file_b"
+        key="file_b",
+        label_visibility="collapsed"
     )
-
-    img1 = None
-    img2 = None
-    tensor1 = None
-    tensor2 = None
-
-    if use_demo:
-
-        img1 = cv2.imread(
-            str(DEFAULT_A),
-            cv2.IMREAD_GRAYSCALE
-        )
-
-        img2 = cv2.imread(
-            str(DEFAULT_B),
-            cv2.IMREAD_GRAYSCALE
-        )
-
-        img1 = normalize_image(img1)
-        img1 = apply_clahe(img1)
-        img1 = cv2.resize(img1, IMG_SIZE)
-
-        img2 = normalize_image(img2)
-        img2 = apply_clahe(img2)
-        img2 = cv2.resize(img2, IMG_SIZE)
-
-        tensor1 = transform(img1)
-        tensor2 = transform(img2)
-
-    elif file1 and file2:
-
-        img1, tensor1 = preprocess_bytes(
-            file1.getvalue()
-        )
-
-        img2, tensor2 = preprocess_bytes(
-            file2.getvalue()
-        )
-
-    if img1 is not None and img2 is not None:
-
-        p1, p2 = st.columns(
-            2,
-            gap="small"
-        )
-
+    
+    if file1 and file2:
+        img1, tensor1 = preprocess_bytes(file1.getvalue())
+        img2, tensor2 = preprocess_bytes(file2.getvalue())
+        
+        # Compact preview (side by side)
+        p1, p2 = st.columns(2, gap="small")
         with p1:
-            st.image(
-                img1,
-                caption="Fingerprint A",
-                use_container_width=True
-            )
-
+            st.image(img1)
         with p2:
-            st.image(
-                img2,
-                caption="Fingerprint B",
-                use_container_width=True
-            )
-
+            st.image(img2)
+        
         verify_btn = st.button(
             "🚀 VERIFY",
             type="primary",
             use_container_width=True
         )
-
     else:
-
         verify_btn = False
+        img1 = img2 = tensor1 = tensor2 = None
 
 # ===== RIGHT COLUMN: RESULT =====
 with col_result:
     st.subheader("📊 RESULT")
     
-    if img1 is not None and img2 is not None and verify_btn:
+    if file1 and file2 and verify_btn:
         start_total = time.time()
         tensor1 = tensor1.unsqueeze(0).to(DEVICE)
         tensor2 = tensor2.unsqueeze(0).to(DEVICE)
@@ -298,7 +186,10 @@ with col_result:
         
         with st.expander("ℹ️ Verification Details", expanded=True):
             st.latex(r"similarity = \frac{1}{1 + distance}")
-            st.write(f"Inference: {inference_time:.3f}s | Total: {total_time:.3f}s | Device: {DEVICE}")
+            st.write(
+                f"Inference: {inference_time:.3f}s | "
+                f"Total: {total_time:.3f}s | Device: {DEVICE}"
+            )
     else:
         st.info("👆 Upload images and click VERIFY", icon="ℹ️")
 
@@ -306,7 +197,7 @@ with col_result:
 # EXPLAINABILITY SECTION
 # ==================================================
 
-if img1 is not None and img2 is not None and verify_btn:
+if file1 and file2 and verify_btn:
     st.divider()
     st.subheader("🔍 EXPLAINABILITY")
     
